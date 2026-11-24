@@ -11,7 +11,7 @@ My 3-day journey to learn SQL (MySQL): notes, practice code and 3 projects (basi
 | Day | Topics | Status |
 |-----|--------|--------|
 | Day 1 | Database basics, SQL intro, DDL commands, Constraints | ✅ Done |
-| Day 2 | _(add topics here as you learn)_ | ⬜ Pending |
+| Day 2 | Keys, WHERE, LIKE, Group by, Having, ASLIKE, Order by" | ✅ Done |
 | Day 3 | _(add topics here as you learn)_ | ⬜ Pending |
 
 | Project | Level | Status |
