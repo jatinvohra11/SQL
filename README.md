@@ -247,3 +247,283 @@ SQL/
 ├── project-2-mid/       ← multiple tables and JOINs
 └── project-3-high/      ← advanced project
 ```
+---
+
+# 📅 Day 2: Keys, Execution Order and SELECT Queries
+
+**Dataset used:** `ecom` database (star schema): `dim_customer`, `dim_product`, `dim_store`, `dim_date` and `fact_sales`.
+**Practice code:** [`day2-practice.sql`](./day2-practice.sql)
+
+---
+
+## 11. Keys
+
+A **key** is a column (or set of columns) used to identify rows or to link tables.
+
+| Key | Meaning | NULL allowed? | How many per table? |
+|-----|---------|---------------|---------------------|
+| **Primary Key (PK)** | Uniquely identifies each record | ❌ No | Only 1 |
+| **Unique Key (UK)** | All values in the column are unique | ✅ Yes (MySQL allows multiple NULLs, SQL Server allows only one) | Many |
+| **Foreign Key (FK)** | Links to the primary key of another table | ✅ Yes | Many |
+| **Candidate Key** | Any column/set that *could* uniquely identify a row | – | Many |
+| **Composite Key** | A key made of 2 or more columns | ❌ (if used as PK) | – |
+| **Surrogate Key** | Artificial key, usually auto-increment number | ❌ | – |
+
+### 11.1 Unique Key
+Ensures all values in a column (or a combination of columns) are unique. A table can have **multiple** unique keys.
+```sql
+CREATE TABLE users (
+    user_id INT PRIMARY KEY,
+    email   VARCHAR(100) UNIQUE,
+    phone   VARCHAR(20)  UNIQUE
+);
+```
+
+### 11.2 Primary Key
+Uniquely identifies each record. Cannot be NULL. **Only one** primary key per table (it can span several columns, see Composite Key).
+```sql
+CREATE TABLE dim_store (
+    store_key  INT PRIMARY KEY,
+    store_name VARCHAR(100)
+);
+```
+
+### 11.3 Foreign Key
+Creates a link between two tables. It makes sure a value in this column **exists in the other table's primary key**.
+```sql
+CREATE TABLE fact_sales_demo (
+    sales_id     INT PRIMARY KEY,
+    customer_key INT,
+    FOREIGN KEY (customer_key) REFERENCES dim_customer(customer_key)
+);
+```
+In `ecom`, `fact_sales` holds foreign keys to all four `dim_` tables. This is exactly how a star schema works.
+
+### 11.4 Candidate Key
+A column or set of columns that can uniquely identify a record. A table can have several. **The primary key is chosen from the candidate keys**; the rest are called alternate keys.
+Example in `dim_customer`: `customer_key`, `customer_id` and `email` could each identify a customer. We chose `customer_key` as the PK.
+
+### 11.5 Composite Key
+A primary key made of **two or more columns**. It identifies a record using the *combination* of columns.
+```sql
+CREATE TABLE order_items (
+    order_id   INT,
+    product_id INT,
+    quantity   INT,
+    PRIMARY KEY (order_id, product_id)
+);
+```
+The same `order_id` can repeat, and so can the same `product_id`, but the same *pair* cannot.
+
+### 11.6 Surrogate Key
+An artificial key, usually an auto-increment number with no business meaning. Used when natural keys (like email) are inconvenient or too long.
+```sql
+CREATE TABLE customers (
+    customer_key INT AUTO_INCREMENT PRIMARY KEY,   -- surrogate key
+    email        VARCHAR(100) UNIQUE               -- natural key
+);
+```
+
+---
+
+## 12. SQL Execution Order
+
+We **write** a query in one order, but SQL **runs** it in another.
+
+| Execution step | Clause | What it does |
+|:--:|--------|--------------|
+| 1 | `FROM` | Picks the table |
+| 2 | `WHERE` | Filters **rows** |
+| 3 | `GROUP BY` | Groups the rows |
+| 4 | `HAVING` | Filters **groups** |
+| 5 | `SELECT` | Picks columns / calculates values |
+| 6 | `ORDER BY` | Sorts the result |
+| 7 | `LIMIT` | Cuts the result to N rows |
+
+```sql
+SELECT                                  -- step 5
+    category, AVG(unit_price) AS avg_price
+FROM dim_product                        -- step 1
+WHERE unit_price > 0                    -- step 2
+GROUP BY category                       -- step 3
+HAVING avg_price > 500                  -- step 4
+ORDER BY avg_price DESC                 -- step 6
+LIMIT 5;                                -- step 7
+```
+
+**Why this matters:** `WHERE` runs *before* `SELECT`, so it cannot use an alias or an aggregate such as `AVG()`. Use `HAVING` for those. (MySQL lets `HAVING` and `ORDER BY` use aliases, but this is a MySQL extra and is not standard SQL.)
+
+---
+
+## 13. SELECT, LIMIT and Indentation
+
+```sql
+USE ecom;                                -- choose the database
+
+SELECT * FROM dim_customer;              -- all columns (avoid on big tables)
+
+SELECT first_name, last_name             -- only needed columns
+FROM dim_customer
+LIMIT 100;                               -- only first 100 rows
+```
+- `*` means all columns.
+- Always add `LIMIT` while exploring big tables (it stops Workbench from hanging).
+- Writing each clause on its own line with indentation makes queries easy to read.
+
+---
+
+## 14. WHERE: Filtering Rows
+
+Filters rows **before** grouping. Use `=` (single equals) for comparison, never `==`.
+
+| Operator | Meaning |
+|----------|---------|
+| `=` | equal to |
+| `!=` or `<>` | not equal |
+| `>`  `<`  `>=`  `<=` | greater, less |
+| `AND` | both conditions true |
+| `OR` | at least one true |
+| `NOT` | reverses a condition |
+
+```sql
+-- Level 1: single condition
+SELECT * FROM dim_customer
+WHERE gender = 'M';
+
+-- Level 2: AND / OR (use brackets to control the logic)
+SELECT * FROM dim_customer
+WHERE gender = 'M'
+  AND (country = 'China' OR join_date > '2025-04-20');
+```
+
+⚠️ **Dates** must be written as `'YYYY-MM-DD'` in quotes. Writing `04/20/2025` is treated as a division, not a date.
+
+**Handy extras:**
+```sql
+WHERE country IN ('India', 'China', 'USA')        -- match any in a list
+WHERE unit_price BETWEEN 100 AND 500              -- inclusive range
+WHERE email IS NULL                               -- check for NULL (never "= NULL")
+WHERE country NOT IN ('India')
+```
+
+---
+
+## 15. LIKE: Pattern Matching
+
+Used for text searches. Two wildcards:
+
+| Wildcard | Meaning |
+|----------|---------|
+| `%` | any number of characters (including none) |
+| `_` | exactly **one** character |
+
+| Pattern | Matches |
+|---------|---------|
+| `'A%'` | starts with A |
+| `'%n'` | ends with n |
+| `'A%n'` | starts with A **and** ends with n |
+| `'%an%'` | contains "an" anywhere |
+| `'A__t%n'` | A + any 2 characters + t + anything + n |
+
+```sql
+SELECT * FROM dim_customer WHERE first_name LIKE 'A%';
+SELECT * FROM dim_customer WHERE first_name LIKE 'A%n';
+SELECT * FROM dim_customer WHERE first_name LIKE 'A__t%n';
+```
+
+---
+
+## 16. ORDER BY: Sorting
+
+Default is **ASC** (smallest to largest, A to Z). Use `DESC` for the reverse.
+```sql
+SELECT * FROM dim_product ORDER BY unit_price;                  -- low to high
+SELECT * FROM dim_product ORDER BY unit_price DESC;             -- high to low
+SELECT * FROM dim_product ORDER BY category ASC, unit_price DESC;  -- by category, then price
+```
+
+---
+
+## 17. Alias (`AS`)
+
+Gives a column or table a temporary, readable name in the result. It does not change the real table.
+```sql
+SELECT
+    product_key,
+    brand AS 'Brand name',     -- quotes allow spaces
+    category
+FROM dim_product;
+```
+`AS` is optional (`brand b` also works), but writing it keeps the code clear.
+
+---
+
+## 18. GROUP BY and Aggregate Functions
+
+`GROUP BY` puts rows with the same value into one group, then an aggregate function calculates one result per group.
+
+| Function | Returns |
+|----------|---------|
+| `COUNT()` | number of rows |
+| `SUM()` | total |
+| `AVG()` | average |
+| `MIN()` / `MAX()` | smallest / largest |
+
+```sql
+SELECT
+    category,
+    AVG(unit_price) AS avg_price,
+    SUM(unit_price) AS total_price
+FROM dim_product
+GROUP BY category;
+```
+**Rule:** every column in `SELECT` that is *not* inside an aggregate function must appear in `GROUP BY`.
+
+---
+
+## 19. HAVING vs WHERE
+
+| | `WHERE` | `HAVING` |
+|---|---------|----------|
+| Filters | individual **rows** | **groups** |
+| Runs | before `GROUP BY` | after `GROUP BY` |
+| Can use aggregates (`AVG`, `SUM`)? | ❌ | ✅ |
+
+```sql
+SELECT category, AVG(unit_price) AS avg_price
+FROM dim_product
+GROUP BY category
+HAVING avg_price > 500;       -- keep only categories whose average is above 500
+```
+
+---
+
+## 20. Day 2 Quick Cheat Sheet
+
+```sql
+SELECT col1, col2 AS alias, AGG(col3)
+FROM table
+WHERE row_condition
+GROUP BY col1, col2
+HAVING group_condition
+ORDER BY col1 DESC
+LIMIT 10;
+
+-- Operators:  =  !=  >  <  >=  <=  AND  OR  NOT  IN  BETWEEN  LIKE  IS NULL
+-- Wildcards:  %  (many)    _  (one)
+-- Aggregates: COUNT  SUM  AVG  MIN  MAX
+-- Execution:  FROM > WHERE > GROUP BY > HAVING > SELECT > ORDER BY > LIMIT
+```
+
+## 21. Common Mistakes (Day 2)
+
+| Mistake | Fix |
+|---------|-----|
+| `WHERE gender == 'M'` | Use a single `=` |
+| `join_date > 04/20/2025` | `join_date > '2025-04-20'` |
+| `avg_price >. 500` (typo) | `avg_price > 500` |
+| Using `AVG()` or an alias in `WHERE` | Use `HAVING` |
+| `WHERE email = NULL` | `WHERE email IS NULL` |
+| Column in `SELECT` missing from `GROUP BY` | Add it to `GROUP BY` or wrap it in an aggregate |
+| Filtering on a column the table doesn't have (e.g. `country` in `dim_product`) | Check columns first with `DESCRIBE dim_product;` |
+| `SELECT *` on a big table | Add `LIMIT` |
