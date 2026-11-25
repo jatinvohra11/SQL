@@ -11,8 +11,8 @@ My 3-day journey to learn SQL (MySQL): notes, practice code and 3 projects (basi
 | Day | Topics | Status |
 |-----|--------|--------|
 | Day 1 | Database basics, SQL intro, DDL commands, Constraints | ✅ Done |
-| Day 2 | Keys, WHERE, LIKE, Group by, Having, ASLIKE, Order by" | ✅ Done |
-| Day 3 | _(add topics here as you learn)_ | ⬜ Pending |
+| Day 2 | Keys, Execution order, WHERE, LIKE, ORDER BY, Alias, GROUP BY, HAVING | ✅ Done |
+| Day 3 | Joins, DML (UPDATE, DELETE), Numeric and Date transformations | 🔄 In progress |
 
 | Project | Level | Status |
 |---------|-------|--------|
@@ -527,3 +527,260 @@ LIMIT 10;
 | Column in `SELECT` missing from `GROUP BY` | Add it to `GROUP BY` or wrap it in an aggregate |
 | Filtering on a column the table doesn't have (e.g. `country` in `dim_product`) | Check columns first with `DESCRIBE dim_product;` |
 | `SELECT *` on a big table | Add `LIMIT` |
+
+---
+
+# 📅 Day 3: Joins, DML Commands and Transformations
+
+**Practice code:** [`day3-practice.sql`](./day3-practice.sql)
+> 🔄 Day 3 is continued in Day 4 (more transformations).
+
+---
+
+## 22. Joins
+
+A **join** combines rows from two (or more) tables using a **related column**, usually a primary key matched with a foreign key. We use joins because data is split across tables (customers in one, orders in another) and we need them together in one result.
+
+**Sample data used below**
+
+`customers`
+
+| id | name |
+|----|------|
+| 101 | Aman |
+| 102 | Simran |
+| 103 | Rohit |
+| 104 | Priya |
+
+`orders`
+
+| order_id | cust_id |
+|----------|---------|
+| 1 | 101 |
+| 2 | 101 |
+| 3 | 102 |
+| 4 | 999 *(no such customer)* |
+
+### Join types at a glance
+
+| Join | Returns | Unmatched rows |
+|------|---------|----------------|
+| `INNER JOIN` | Only rows that match in **both** tables | Dropped |
+| `LEFT JOIN` | **All rows of the left table** + matches from the right | Right side shows `NULL` |
+| `RIGHT JOIN` | **All rows of the right table** + matches from the left | Left side shows `NULL` |
+| `FULL JOIN` | All rows from **both** tables | `NULL` on whichever side has no match |
+
+(In `FROM orders o JOIN customers c`, `orders` is the **left** table and `customers` is the **right** table.)
+
+### 22.1 INNER JOIN
+```sql
+SELECT *
+FROM orders o
+INNER JOIN customers c
+    ON o.cust_id = c.id;
+```
+Result: orders 1, 2, 3 only. Order 4 (customer 999) and customers Rohit and Priya (no orders) are dropped.
+
+### 22.2 LEFT JOIN
+```sql
+SELECT *
+FROM orders o
+LEFT JOIN customers c
+    ON o.cust_id = c.id;
+```
+Result: all 4 orders. Order 4 shows `NULL` for the customer columns.
+
+### 22.3 RIGHT JOIN
+```sql
+SELECT *
+FROM orders o
+RIGHT JOIN customers c
+    ON o.cust_id = c.id;
+```
+Result: all 4 customers. Rohit and Priya show `NULL` for the order columns.
+
+### 22.4 FULL JOIN (MySQL workaround)
+**MySQL does not support `FULL JOIN`.** We build it by combining a LEFT JOIN and a RIGHT JOIN with `UNION`.
+```sql
+SELECT * FROM orders o LEFT JOIN  customers c ON o.cust_id = c.id
+UNION
+SELECT * FROM orders o RIGHT JOIN customers c ON o.cust_id = c.id;
+```
+Result: everything: matched rows, the unmatched order and the unmatched customers.
+
+- `UNION` removes duplicate rows. `UNION ALL` keeps them.
+- Both `SELECT`s must return the **same number of columns** in the same order.
+
+### 22.5 Key points about joins
+- `ON` says *how* rows are matched.
+- Table aliases (`orders o`, `customers c`) keep the code short.
+- `SELECT *` repeats columns from both tables. Prefer `SELECT o.order_id, c.name`.
+- Find "unmatched" rows with `LEFT JOIN ... WHERE c.id IS NULL`, for example orders with no customer.
+
+### 22.6 Real example on `ecom`
+Total sales per customer country:
+```sql
+SELECT
+    c.country,
+    SUM(f.total_amount) AS total_sales
+FROM fact_sales f
+INNER JOIN dim_customer c
+    ON f.customer_key = c.customer_key
+GROUP BY c.country
+ORDER BY total_sales DESC;
+```
+
+---
+
+## 23. DML: Data Manipulation Language
+
+**DML** commands change the **data inside** tables (DDL changed the structure).
+
+| Command | Purpose | Status |
+|---------|---------|--------|
+| `INSERT` | Add new rows | ✅ done on Day 1 |
+| `UPDATE` | Change existing rows | ✅ |
+| `DELETE` | Remove rows | ✅ |
+
+### 23.1 UPDATE
+```sql
+UPDATE customers
+SET name = 'ABC'
+WHERE id = 101;
+
+SELECT * FROM customers;      -- always verify
+```
+`SET` can change several columns: `SET name = 'ABC', email = 'abc@mail.com'`.
+
+### 23.2 DELETE
+```sql
+DELETE FROM customers
+WHERE email = 'cc';
+
+SELECT * FROM customers;
+```
+
+> ⚠️ **Always use `WHERE` with `UPDATE` and `DELETE`.** Without it, **every row** is changed or deleted. Workbench runs with auto-commit ON, so there is no undo.
+> Tip: write the `SELECT ... WHERE ...` first to see which rows will be affected, then change `SELECT *` to `DELETE` or `UPDATE`.
+> If you see **Error 1175** (safe update mode), the `WHERE` must use a key column like `id`.
+
+### DELETE vs TRUNCATE vs DROP
+
+| | `DELETE` | `TRUNCATE` | `DROP` |
+|---|----------|-----------|--------|
+| Type | DML | DDL | DDL |
+| Removes | chosen rows (with `WHERE`) | all rows | whole table |
+| Table remains? | ✅ | ✅ | ❌ |
+
+---
+
+## 24. Transformations
+
+Transformations calculate or reshape values **inside the query**. The original table is not changed.
+
+### 24.1 Numeric transformations
+
+**Operators:** `+`  `-`  `*`  `/`  `%` (remainder)  `DIV` (integer division)
+
+| Function | Does | Example |
+|----------|------|---------|
+| `ROUND(x, n)` | rounds to n decimals | `ROUND(12.345, 1)` gives 12.3 |
+| `CEIL(x)` | rounds up | `CEIL(12.1)` gives 13 |
+| `FLOOR(x)` | rounds down | `FLOOR(12.9)` gives 12 |
+| `ABS(x)` | removes the minus sign | `ABS(-5)` gives 5 |
+
+```sql
+SELECT
+    unit_price,
+    unit_price * 0.90      AS dis_price,       -- 10% discount
+    unit_price + 10        AS price_plus_10,   -- add a flat 10
+    unit_price / 10        AS frac_price,
+    ROUND(unit_price, 1)   AS rounded_price
+FROM dim_product
+LIMIT 20;
+```
+
+### 24.2 Date transformations
+
+**Getting the current date/time**
+
+| Function | Returns |
+|----------|---------|
+| `NOW()` | current date and time (server's local time) |
+| `UTC_DATE()` | today's date in UTC |
+| `UTC_TIME()` | current time in UTC |
+| `UTC_TIMESTAMP()` | current date and time in UTC |
+
+```sql
+SELECT NOW(), UTC_DATE(), UTC_TIME(), UTC_TIMESTAMP();
+```
+(`FROM dim_date` is not needed here and would repeat the result for every row.)
+
+**Extracting and calculating parts of a date**
+
+| Function | Returns | Example for `2025-04-20` |
+|----------|---------|--------------------------|
+| `YEAR(d)` | year | 2025 |
+| `MONTH(d)` | month number | 4 |
+| `DAY(d)` | day of month | 20 |
+| `DAYNAME(d)` | weekday name | Sunday |
+| `WEEKDAY(d)` | weekday number, **Monday = 0** | 6 |
+| `ADDDATE(d, n)` | date + n days | 2025-04-22 (n = 2) |
+| `SUBDATE(d, n)` | date − n days | 2025-04-18 (n = 2) |
+| `DATEDIFF(a, b)` | days from b to a (a − b) | `DATEDIFF('2025-04-20','2025-04-10')` gives 10 |
+
+```sql
+SELECT
+    date,
+    YEAR(date)       AS yr,
+    MONTH(date)      AS mon,
+    DAY(date)        AS dy,
+    DAYNAME(date)    AS day_name,
+    WEEKDAY(date)    AS weekday_no,
+    ADDDATE(date, 2) AS plus_2_days,
+    SUBDATE(date, 2) AS minus_2_days,
+    DATEDIFF(DATE(UTC_TIMESTAMP()), date) AS days_since
+FROM dim_date
+LIMIT 20;
+```
+- `DATE(UTC_TIMESTAMP())` cuts the time part and keeps only today's date.
+- `WEEKDAY()` starts at **Monday = 0**, while `DAYOFWEEK()` starts at **Sunday = 1**.
+
+**Extras:**
+```sql
+SELECT DATE_FORMAT(date, '%d-%b-%Y') FROM dim_date LIMIT 5;     -- 20-Apr-2025
+SELECT DATE_ADD(date, INTERVAL 1 MONTH) FROM dim_date LIMIT 5;  -- add 1 month
+```
+
+---
+
+## 25. Day 3 Cheat Sheet
+
+```sql
+-- Joins
+SELECT a.col, b.col
+FROM tableA a
+INNER JOIN tableB b ON a.key = b.key;    -- only matches
+-- LEFT JOIN: all of A | RIGHT JOIN: all of B
+-- FULL JOIN (MySQL): LEFT JOIN UNION RIGHT JOIN
+
+-- DML
+INSERT INTO t VALUES (...);
+UPDATE t SET col = val WHERE cond;
+DELETE FROM t WHERE cond;
+
+-- Numeric:  + - * /  ROUND CEIL FLOOR ABS
+-- Date:     NOW UTC_DATE YEAR MONTH DAY DAYNAME WEEKDAY ADDDATE SUBDATE DATEDIFF
+```
+
+## 26. Common Mistakes (Day 3)
+
+| Mistake | Fix |
+|---------|-----|
+| `FULL JOIN` gives a syntax error | MySQL has no FULL JOIN. Use `LEFT JOIN UNION RIGHT JOIN` |
+| `UPDATE`/`DELETE` without `WHERE` | Changes **all** rows. Always add `WHERE`, and test with `SELECT` first |
+| `UNION` with a different number of columns | Both `SELECT`s need the same column count |
+| `SELECT *` in a join shows duplicate column names | Select specific columns with the alias, e.g. `c.name` |
+| Joining on the wrong columns | Join PK to FK (`o.cust_id = c.id`) |
+| Confusing `WEEKDAY()` with `DAYOFWEEK()` | WEEKDAY: Mon = 0. DAYOFWEEK: Sun = 1 |
+| Calling `unit_price + 10` "tax" | It is a flat +10. A 10% tax is `unit_price * 1.10` |
